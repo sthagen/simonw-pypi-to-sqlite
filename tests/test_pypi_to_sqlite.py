@@ -8,6 +8,9 @@ import sqlite_utils
 fixture = json.loads(
     (pathlib.Path(__file__).parent / "datasette-block.json").read_text()
 )
+fixture2 = json.loads(
+    (pathlib.Path(__file__).parent / "datasette-block-2.json").read_text()
+)
 
 
 @pytest.mark.parametrize("prefix", ("", "pypi_"))
@@ -16,7 +19,7 @@ def test_import_package(httpx_mock, prefix, use_file):
     args = []
     runner = CliRunner()
 
-    expected_schema = (
+    expected_schema1 = (
         f"CREATE TABLE [{prefix}packages] (\n"
         "   [name] TEXT PRIMARY KEY,\n"
         "   [summary] TEXT,\n"
@@ -72,19 +75,40 @@ def test_import_package(httpx_mock, prefix, use_file):
             args = ["-f", "package.json"]
         else:
             args = ["datasette-block"]
-            httpx_mock.add_response(json=fixture)
+            httpx_mock.add_response(
+                url="https://pypi.org/pypi/datasette-block/json", json=fixture
+            )
         if prefix:
             args.extend(["--prefix", prefix])
         result = runner.invoke(cli, ["pypi.db"] + args, catch_exceptions=False)
         assert result.exit_code == 0
         db = sqlite_utils.Database("pypi.db")
-        assert db.schema == expected_schema
+        assert db.schema == expected_schema1
+        assert "dynamic" not in db["{prefix}packages"].columns_dict
         assert list(db.query(f"select name from {prefix}packages")) == [
             {"name": "datasette-block"}
         ]
+        if not use_file:
+            assert len(httpx_mock.get_requests()) == 1
         # Should be safe to run twice
-        result = runner.invoke(cli, ["pypi.db"] + args, catch_exceptions=False)
-        assert result.exit_code == 0
+        result2 = runner.invoke(cli, ["pypi.db"] + args, catch_exceptions=False)
+        assert result2.exit_code == 0
+        if not use_file:
+            assert len(httpx_mock.get_requests()) == 2
         assert list(db.query(f"select name from {prefix}packages")) == [
             {"name": "datasette-block"}
         ]
+        # Now try running it a second time against the new data
+        httpx_mock.reset(True)
+        if not use_file:
+            httpx_mock.add_response(
+                url="https://pypi.org/pypi/datasette-block/json", json=fixture2
+            )
+        else:
+            open("package.json", "w").write(json.dumps(fixture2))
+        result3 = runner.invoke(cli, ["pypi.db"] + args, catch_exceptions=False)
+        if not use_file:
+            assert len(httpx_mock.get_requests()) == 1
+        assert result3.exit_code == 0
+        # Should have a "dynamic" column now
+        assert "dynamic" in db[f"{prefix}packages"].columns_dict

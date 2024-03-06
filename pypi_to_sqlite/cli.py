@@ -78,6 +78,7 @@ def save_to_db(db, data, prefix):
         pk="name",
         column_order=("name", "summary", "classifiers", "description"),
         replace=True,
+        alter=True,
     )
     # Releases are: {"version_number": [list-of-downloads]}
     for version_number, downloads in releases.items():
@@ -91,6 +92,7 @@ def save_to_db(db, data, prefix):
             pk="id",
             foreign_keys=(("package", f"{prefix}packages"),),
             replace=True,
+            alter=True,
         )
         for download in downloads:
             download.pop("downloads")
@@ -109,4 +111,5 @@ def save_to_db(db, data, prefix):
                     ("version", f"{prefix}versions"),
                 ),
                 replace=True,
+                alter=True,
             )
